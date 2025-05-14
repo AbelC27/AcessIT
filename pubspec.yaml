@@ -1,0 +1,37 @@
+name: access_control_app
+description: A Flutter app for managing access control for employees and visitors.
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Supabase integration
+  supabase_flutter: ^2.9.0
+  permission_handler: ^11.3.1
+
+  # Bluetooth Low Energy support
+  flutter_blue_plus: ^1.30.4
+
+  # For secure local storage (you’ll likely need this for BLE codes or tokens later)
+  flutter_secure_storage: ^9.0.0
+
+  # UI support
+  cupertino_icons: ^1.0.6
+
+  intl: ^0.18.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_dotenv: ^5.1.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/logo.png
