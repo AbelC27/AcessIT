@@ -3,11 +3,10 @@ import '../services/ble_service.dart';
 
 class AccessRequestScreen extends StatefulWidget {
   final String accessCode;
-
   const AccessRequestScreen({super.key, required this.accessCode});
 
   @override
-  _AccessRequestScreenState createState() => _AccessRequestScreenState();
+  State<AccessRequestScreen> createState() => _AccessRequestScreenState();
 }
 
 class _AccessRequestScreenState extends State<AccessRequestScreen> {
@@ -16,10 +15,14 @@ class _AccessRequestScreenState extends State<AccessRequestScreen> {
 
   Future<void> _sendAccessCode() async {
     setState(() => _sending = true);
-    await _bleService.sendCodeOverBLE(widget.accessCode);
+    bool ok = await _bleService.sendCodeOverBluetooth(widget.accessCode);
     setState(() => _sending = false);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Access code sent via Bluetooth')),
+      SnackBar(
+        content: Text(ok
+            ? 'Cod trimis cu succes prin Bluetooth!'
+            : 'Eroare la trimitere!'),
+      ),
     );
   }
 
@@ -32,7 +35,7 @@ class _AccessRequestScreenState extends State<AccessRequestScreen> {
             ? CircularProgressIndicator()
             : ElevatedButton(
                 onPressed: _sendAccessCode,
-                child: Text('Send Access Code'),
+                child: Text('Trimite codul prin Bluetooth'),
               ),
       ),
     );

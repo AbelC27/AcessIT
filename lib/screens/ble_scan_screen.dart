@@ -1,74 +1,87 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 
-class BleScanScreen extends StatefulWidget {
-  const BleScanScreen({super.key});
+class BleConnectScreen extends StatefulWidget {
+  const BleConnectScreen({super.key});
 
   @override
-  State<BleScanScreen> createState() => _BleScanScreenState();
+  State<BleConnectScreen> createState() => _BleConnectScreenState();
 }
 
-class _BleScanScreenState extends State<BleScanScreen> {
-  List<ScanResult> _devices = [];
-  bool _scanning = false;
+class _BleConnectScreenState extends State<BleConnectScreen> {
+  BluetoothDevice? _espDevice;
+  bool _connecting = false;
+  String _status = '';
 
-  void _startScan() async {
+  Future<void> _scanAndConnect() async {
     setState(() {
-      _devices.clear();
-      _scanning = true;
+      _status = 'Scanare...';
+      _connecting = true;
     });
 
-    // Oprește orice scanare anterioară
-    await FlutterBluePlus.stopScan();
+    final bluetooth = FlutterBluetoothSerial.instance;
 
-    // Ascultă rezultatele scanării
-    FlutterBluePlus.scanResults.listen((results) {
+    // Pornește Bluetooth dacă nu e pornit
+    if (!(await bluetooth.isEnabled ?? false)) {
+      await bluetooth.requestEnable();
+    }
+
+    // Caută device-urile deja împerecheate
+    List<BluetoothDevice> devices = await bluetooth.getBondedDevices();
+    BluetoothDevice? espDevice = devices.firstWhere(
+      (d) => d.name == "ESP32_GATE",
+    );
+
+    if (espDevice == null) {
       setState(() {
-        _devices = results;
+        _status = 'ESP32_GATE nu este împerecheat! Împerechează-l din setările Bluetooth.';
+        _connecting = false;
       });
-    });
-
-    // Pornește scanarea pentru 5 secunde
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 5));
+      return;
+    }
 
     setState(() {
-      _scanning = false;
+      _status = 'Se conectează la ${espDevice.name}...';
     });
-  }
 
-  @override
-  void dispose() {
-    FlutterBluePlus.stopScan();
-    super.dispose();
+    try {
+      BluetoothConnection connection =
+          await BluetoothConnection.toAddress(espDevice.address);
+      setState(() {
+        _status = 'Conectat la ${espDevice.name}!';
+        _espDevice = espDevice;
+      });
+      await connection.close();
+    } catch (e) {
+      setState(() {
+        _status = 'Eroare la conectare: $e';
+      });
+    } finally {
+      setState(() {
+        _connecting = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scanare BLE')),
-      body: Column(
-        children: [
-          ElevatedButton(
-            onPressed: _scanning ? null : _startScan,
-            child: Text(_scanning ? 'Scanare...' : 'Scanează BLE'),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _devices.length,
-              itemBuilder: (context, index) {
-                final device = _devices[index].device;
-                return ListTile(
-                  title: Text(device.platformName.isNotEmpty
-                      ? device.platformName
-                      : device.remoteId.str),
-                  subtitle: Text(device.remoteId.str),
-                );
-              },
-            ),
-          ),
-        ],
+      appBar: AppBar(title: Text('Conectare ESP32')),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_status),
+            SizedBox(height: 20),
+            _connecting
+                ? CircularProgressIndicator()
+                : ElevatedButton(
+                    onPressed: _scanAndConnect,
+                    child: Text('Conectează la ESP32_GATE'),
+                  ),
+          ],
+        ),
       ),
     );
   }
 }
-// Aceasta este o aplicație simplă care scanează dispozitivele Bluetooth Low Energy (BLE) din apropiere.

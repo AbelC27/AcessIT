@@ -90,7 +90,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _sendAccessCode() async {
     if (currentUser == null) return;
     setState(() => _sending = true);
-    await _bleService.sendCodeOverBLE(currentUser!.bluetoothCode);
+    //await _bleService.sendCodeOverBLE(currentUser!.bluetoothCode);
     setState(() => _sending = false);
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Access code sent via Bluetooth')),
