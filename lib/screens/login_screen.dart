@@ -1,4 +1,4 @@
-// Root: lib/screens/login_screen.dart
+// lib/screens/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'home_screen.dart';
@@ -48,6 +48,28 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+Future<void> _sendResetPasswordEmail() async {
+  final email = _emailController.text.trim();
+  if (email.isNotEmpty) {
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'parkaccess://reset-password?email=$email',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password reset email sent.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error sending reset email: $e')),
+      );
+    }
+  } else {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Please enter your email first.')),
+    );
+  }
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -85,22 +107,9 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Text("I'm a Visitor"),
             ),
             TextButton(
-              onPressed: () async {
-                final email = _emailController.text.trim();
-                if (email.isNotEmpty) {
-                  await Supabase.instance.client.auth
-                      .resetPasswordForEmail(email);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Password reset email sent.')),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Please enter your email first.')),
-                  );
-                }
-              },
+              onPressed: _sendResetPasswordEmail,
               child: Text('Forgot Password?'),
-            )
+            ),
           ],
         ),
       ),

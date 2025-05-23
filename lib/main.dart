@@ -1,3 +1,4 @@
+// main.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -54,54 +55,43 @@ class _MyAppState extends State<MyApp> {
     final uri = await _appLinks.getInitialAppLink();
     _handleUri(uri);
   }
-  
-  void _handleUri(Uri? uri) async {
+void _handleUri(Uri? uri) async {
   print('Received URI: $uri');
-  if (uri != null &&
-      uri.scheme == 'parkaccess' &&
-      uri.host == 'reset-password' &&
-      uri.queryParameters.containsKey('code')) {
-    final code = uri.queryParameters['code']!;
-    String? email = uri.queryParameters['email'];
-    if (email == null) {
-      email = await Navigator.of(navigatorKey.currentContext!).push<String>(
-        MaterialPageRoute(
-          builder: (_) => EnterEmailScreen(code: code),
-        ),
+  String? code = uri?.queryParameters['code'] ?? uri?.queryParameters['token'];
+  String? email = uri?.queryParameters['email'];
+  print('Code: $code, Email: $email');
+  if (code != null && email != null && email.isNotEmpty) {
+    await Supabase.instance.client.auth.signOut();
+    try {
+      final response = await Supabase.instance.client.auth.verifyOTP(
+        type: OtpType.recovery,
+        token: code,
+        email: email,
       );
-    }
-    if (email != null && email.isNotEmpty) {
-      await Supabase.instance.client.auth.signOut(); // asigură-te că nu ești logat
-      try {
-        final response = await Supabase.instance.client.auth.verifyOTP(
-          type: OtpType.recovery,
-          token: code,
-          email: email,
+      print('verifyOTP response: ${response.user}');
+      if (response.user != null) {
+        print('Recovery verified, user: ${response.user!.id}');
+        navigatorKey.currentState?.push(
+          MaterialPageRoute(
+            builder: (_) => ResetPasswordScreen(),
+          ),
         );
-        print('verifyOTP response: ${response.user}');
-        if (response.user != null) {
-          print('Recovery verified, user: ${response.user!.id}');
-          navigatorKey.currentState?.push(
-            MaterialPageRoute(
-              builder: (_) => ResetPasswordScreen(),
-            ),
-          );
-        } else {
-          print('Recovery failed: No user returned');
-          ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-            SnackBar(content: Text('Link invalid sau expirat!')),
-          );
-        }
-      } catch (e) {
-        print('Exception at verifyOTP: $e');
+      } else {
+        print('Recovery failed: No user returned');
         ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-          SnackBar(content: Text('Eroare la resetare: $e')),
+          SnackBar(content: Text('Link invalid sau expirat!')),
         );
       }
+    } catch (e) {
+      print('Exception at verifyOTP: $e');
+      ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+        SnackBar(content: Text('Eroare la resetare: $e')),
+      );
     }
+  } else {
+    print('Missing code or email in link!');
   }
 }
-
 
 
 

@@ -1,11 +1,11 @@
+// lib/screens/home_screen.dart
 import 'package:flutter/material.dart';
-import '../services/ble_service.dart';
 import '../services/local_storage_service.dart';
 import '../models/user_model.dart';
-//import '../screens/access_request_screen.dart';
 import '../screens/presence_report_screen.dart';
 import '../screens/profile_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'bluetooth_send_screen.dart'; // <-- importă noul ecran
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,7 +16,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  final BLEService _bleService = BLEService();
   final LocalStorageService _localStorage = LocalStorageService();
   bool _sending = false;
   UserModel? currentUser;
@@ -87,14 +86,15 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  Future<void> _sendAccessCode() async {
+  void _goToBluetoothSendScreen() {
     if (currentUser == null) return;
-    setState(() => _sending = true);
-    //await _bleService.sendCodeOverBLE(currentUser!.bluetoothCode);
-    setState(() => _sending = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Access code sent via Bluetooth')),
-    );
+    final code = currentUser!.bluetoothCode ?? '';
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+      builder: (_) => BluetoothSendScreen(bluetoothCode: code),
+  ),
+);
   }
 
   List<Widget> get _visitorOptions => [
@@ -102,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: _sending
               ? CircularProgressIndicator()
               : ElevatedButton(
-                  onPressed: _sendAccessCode,
+                  onPressed: _goToBluetoothSendScreen,
                   child: Text('Request Access via Bluetooth'),
                 ),
         ),
@@ -114,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: _sending
               ? CircularProgressIndicator()
               : ElevatedButton(
-                  onPressed: _sendAccessCode,
+                  onPressed: _goToBluetoothSendScreen,
                   child: Text('Request Access via Bluetooth'),
                 ),
         ),
