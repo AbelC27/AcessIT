@@ -17,6 +17,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   bool _isConnected = false;
   bool _sending = false;
   String? _statusMessage;
+  String? _esp32Response;
 
   @override
   void initState() {
@@ -64,6 +65,13 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
           _isConnected = true;
           _statusMessage = "Conectat la ${_device!.name}";
         });
+        // Ascultă răspunsuri de la ESP32
+        _connection!.input?.listen(_onDataReceived).onDone(() {
+          setState(() {
+            _isConnected = false;
+            _statusMessage = "Deconectat de la ESP32";
+          });
+        });
       }).catchError((error) {
         setState(() {
           _statusMessage = "Eroare la conectare: $error";
@@ -72,19 +80,36 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
+  void _onDataReceived(Uint8List data) {
+    // Convertim bytes la string
+    String response = String.fromCharCodes(data).trim();
+    setState(() {
+      _esp32Response = response;
+      if (response.contains("ACCESS_GRANTED")) {
+        _statusMessage = "Acces PERMIS!";
+      } else if (response.contains("ACCESS_DENIED")) {
+        _statusMessage = "Acces RESPINS!";
+      } else {
+        _statusMessage = "Răspuns ESP32: $response";
+      }
+    });
+  }
+
   Future<void> _sendBluetoothCode() async {
     if (_isConnected && _connection != null) {
       setState(() {
         _sending = true;
         _statusMessage = "Se trimite codul...";
+        _esp32Response = null;
       });
       String code = widget.bluetoothCode;
       _connection!.output.add(Uint8List.fromList(code.codeUnits));
       await _connection!.output.allSent;
       setState(() {
         _sending = false;
-        _statusMessage = "Bluetooth Code trimis cu succes!";
+        _statusMessage = "Bluetooth Code trimis! Aștept răspuns de la ESP32...";
       });
+      // Răspunsul va fi procesat automat de _onDataReceived
     } else {
       setState(() {
         _statusMessage = "Nu ești conectat la ESP32!";
@@ -135,7 +160,6 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                       .copyWith(color: theme.primaryColor),
                 ),
                 const SizedBox(height: 24),
-                // Butoanele una sub alta:
                 Column(
                   children: [
                     SizedBox(
@@ -147,8 +171,8 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                             : 'Conectează-te la ESP32'),
                         onPressed: _connect,
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.primaryColor, // sau Colors.indigo
-                            foregroundColor: Colors.white,
+                          backgroundColor: theme.primaryColor,
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 20, vertical: 14),
                           textStyle: const TextStyle(fontSize: 16),
@@ -183,7 +207,8 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                   Text(
                     _statusMessage!,
                     style: TextStyle(
-                      color: _statusMessage!.contains('Eroare')
+                      color: _statusMessage!.contains('Eroare') ||
+                              _statusMessage!.contains('RESPINS')
                           ? Colors.red
                           : Colors.green,
                       fontWeight: FontWeight.bold,
