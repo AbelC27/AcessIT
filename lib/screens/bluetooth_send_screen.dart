@@ -4,9 +4,10 @@ import 'dart:typed_data';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../widgets/welcome_animation.dart';
 import '../screens/home_screen.dart';
-
+import '../services/access_log_service.dart'; // dacă ai pus funcția acolo
 class BluetoothSendScreen extends StatefulWidget {
   final String bluetoothCode;
   const BluetoothSendScreen({super.key, required this.bluetoothCode});
@@ -84,20 +85,28 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
-  void _onDataReceived(Uint8List data) {
-    String response = String.fromCharCodes(data).trim();
-    setState(() {
-      _esp32Response = response;
-      if (response.contains("ACCESS_GRANTED")) {
-        _statusMessage = "Acces cu mașina PERMIS!";
-        _showWelcomeAndNavigate(""); // Poți pune numele userului dacă îl ai
-      } else if (response.contains("ACCESS_DENIED")) {
-        _statusMessage = "Acces cu mașina RESPINS!";
-      } else {
-        _statusMessage = "Răspuns ESP32: $response";
-      }
-    });
+  void _onDataReceived(Uint8List data) async {
+  String response = String.fromCharCodes(data).trim();
+  setState(() {
+    _esp32Response = response;
+  });
+  if (response.contains("ACCESS_GRANTED")) {
+    // Exemplu pentru angajat:
+    final employee = await Supabase.instance.client
+        .from('employees')
+        .select('id')
+        .eq('bluetooth_code', widget.bluetoothCode)
+        .maybeSingle();
+    if (employee != null) {
+      await logEmployeeAccess(
+        employeeId: employee['id'],
+        direction: 'entry',
+        bluetoothCode: widget.bluetoothCode,
+      );
+    }
+    _showWelcomeAndNavigate("Numele Utilizatorului");
   }
+}
 
   Future<void> _sendBluetoothCode() async {
     if (_isConnected && _connection != null) {
@@ -120,49 +129,65 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
-  Future<void> _sendCodeToWeb() async {
-    setState(() {
-      _sending = true;
-      _webResponse = null;
-      _statusMessage = "Se trimite codul la server...";
-    });
+  
+Future<void> _sendCodeToWeb() async {
+  setState(() {
+    _sending = true;
+    _webResponse = null;
+    _statusMessage = "Se trimite codul la server...";
+  });
 
-    try {
-      final url = Uri.parse('http://192.168.1.134:8000/validate/');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'ble_code': widget.bluetoothCode}),
-      );
+  try {
+    final url = Uri.parse('http://192.168.1.134:8000/validate/');
+    final response = await http.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'ble_code': widget.bluetoothCode}),
+    );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _webResponse = data['status'] == 'granted'
-              ? "Acces pietonal PERMIS!"
-              : "Acces pietonal RESPINS!";
-          _statusMessage = _webResponse;
-          if (data['status'] == 'granted') {
-            _showWelcomeAndNavigate(data['user'] ?? "");
-          }
-        });
-      } else {
-        setState(() {
-          _webResponse = "Eroare server: ${response.statusCode}";
-          _statusMessage = _webResponse;
-        });
-      }
-    } catch (e) {
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
       setState(() {
-        _webResponse = "Eroare la trimitere: $e";
+        _webResponse = data['status'] == 'granted'
+            ? "Acces pietonal PERMIS!"
+            : "Acces pietonal RESPINS!";
         _statusMessage = _webResponse;
       });
-    } finally {
+
+      if (data['status'] == 'granted') {
+        // Caută angajatul după bluetooth_code
+        final employee = await Supabase.instance.client
+            .from('employees')
+            .select('id, name')
+            .eq('bluetooth_code', widget.bluetoothCode)
+            .maybeSingle();
+
+        if (employee != null) {
+          await logEmployeeAccess(
+            employeeId: employee['id'],
+            direction: 'entry',
+            bluetoothCode: widget.bluetoothCode,
+          );
+        }
+        _showWelcomeAndNavigate(data['user'] ?? "");
+      }
+    } else {
       setState(() {
-        _sending = false;
+        _webResponse = "Eroare server: ${response.statusCode}";
+        _statusMessage = _webResponse;
       });
     }
+  } catch (e) {
+    setState(() {
+      _webResponse = "Eroare la trimitere: $e";
+      _statusMessage = _webResponse;
+    });
+  } finally {
+    setState(() {
+      _sending = false;
+    });
   }
+}
 
   void _showWelcomeAndNavigate(String userName) async {
     showDialog(
