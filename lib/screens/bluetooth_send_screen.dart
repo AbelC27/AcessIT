@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../widgets/welcome_animation.dart';
+import '../screens/home_screen.dart';
 
 class BluetoothSendScreen extends StatefulWidget {
   final String bluetoothCode;
@@ -88,6 +90,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
       _esp32Response = response;
       if (response.contains("ACCESS_GRANTED")) {
         _statusMessage = "Acces cu mașina PERMIS!";
+        _showWelcomeAndNavigate(""); // Poți pune numele userului dacă îl ai
       } else if (response.contains("ACCESS_DENIED")) {
         _statusMessage = "Acces cu mașina RESPINS!";
       } else {
@@ -125,7 +128,6 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     });
 
     try {
-      // Înlocuiește cu adresa backend-ului tău!
       final url = Uri.parse('http://192.168.1.134:8000/validate/');
       final response = await http.post(
         url,
@@ -140,6 +142,9 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
               ? "Acces pietonal PERMIS!"
               : "Acces pietonal RESPINS!";
           _statusMessage = _webResponse;
+          if (data['status'] == 'granted') {
+            _showWelcomeAndNavigate(data['user'] ?? "");
+          }
         });
       } else {
         setState(() {
@@ -156,6 +161,22 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
       setState(() {
         _sending = false;
       });
+    }
+  }
+
+  void _showWelcomeAndNavigate(String userName) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => WelcomeAnimation(userName: userName),
+    );
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) {
+      Navigator.of(context).pop(); // închide dialogul
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => HomeScreen()),
+        (route) => false,
+      );
     }
   }
 

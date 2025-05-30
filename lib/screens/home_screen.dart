@@ -103,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? CircularProgressIndicator()
               : ElevatedButton(
                   onPressed: _goToBluetoothSendScreen,
-                  child: Text('Request Access via Bluetooth'),
+                  child: Text('Request Access'),
                 ),
         ),
         if (currentUser != null) ProfileScreen(user: currentUser!),
@@ -115,7 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? CircularProgressIndicator()
               : ElevatedButton(
                   onPressed: _goToBluetoothSendScreen,
-                  child: Text('Request Access via Bluetooth'),
+                  child: Text('Request Access'),
                 ),
         ),
         PresenceReportScreen(logs: []),
