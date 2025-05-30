@@ -1,4 +1,5 @@
 // lib/screens/home_screen.dart
+import 'package:access_control_app/screens/bluetooth_access_screen.dart';
 import 'package:flutter/material.dart';
 import '../services/local_storage_service.dart';
 import '../models/user_model.dart';
@@ -87,15 +88,18 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _goToBluetoothSendScreen() {
-    if (currentUser == null) return;
-    final code = currentUser!.bluetoothCode ?? '';
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-      builder: (_) => BluetoothSendScreen(bluetoothCode: code),
-  ),
-);
-  }
+  if (currentUser == null) return;
+  final code = currentUser!.bluetoothCode ?? '';
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => BluetoothAccessScreen(
+        bluetoothCode: code,
+        userName: currentUser!.name,
+      ),
+    ),
+  );
+}
 
   List<Widget> get _visitorOptions => [
         Center(

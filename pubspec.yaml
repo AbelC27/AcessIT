@@ -41,3 +41,4 @@ flutter:
     - assets/images/logo.png
     - .env
     - assets/lottie/success.json
+    - assets/lottie/denied.json
