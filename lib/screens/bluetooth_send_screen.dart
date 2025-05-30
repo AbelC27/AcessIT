@@ -7,7 +7,7 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../widgets/welcome_animation.dart';
 import '../screens/home_screen.dart';
-import '../services/access_log_service.dart'; // dacă ai pus funcția acolo
+
 class BluetoothSendScreen extends StatefulWidget {
   final String bluetoothCode;
   const BluetoothSendScreen({super.key, required this.bluetoothCode});
@@ -85,28 +85,121 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
-  void _onDataReceived(Uint8List data) async {
-  String response = String.fromCharCodes(data).trim();
-  setState(() {
-    _esp32Response = response;
-  });
-  if (response.contains("ACCESS_GRANTED")) {
-    // Exemplu pentru angajat:
+  Future<bool> isEmployeeInside(String employeeId) async {
+    try {
+      print('Verific statusul pentru employeeId: $employeeId');
+      
+      final logs = await Supabase.instance.client
+          .from('access_logs')
+          .select('direction, timestamp, employee_id')
+          .eq('employee_id', employeeId)
+          .order('timestamp', ascending: false)
+          .limit(1);
+
+      print('Query rezultat pentru angajatul $employeeId: $logs');
+      print('Tipul rezultatului: ${logs.runtimeType}');
+      
+      if (logs is List && logs.isNotEmpty) {
+        final lastDirection = logs[0]['direction'];
+        print('Ultima direcție găsită: "$lastDirection"');
+        print('Timestamp: ${logs[0]['timestamp']}');
+        
+        // Verifică exact ce string ai în baza de date
+        final isInside = lastDirection == 'entry';
+        print('Comparația "$lastDirection" == "entry" = $isInside');
+        return isInside;
+      }
+      
+      print('Nu există loguri pentru angajatul $employeeId');
+      return false;
+    } catch (e) {
+      print('Eroare la verificarea statusului angajatului: $e');
+      return false;
+    }
+  }
+
+  Future<void> logEmployeeAccess({
+    required String employeeId,
+    required String direction,
+    String? bluetoothCode,
+  }) async {
+    await Supabase.instance.client.from('access_logs').insert({
+      'employee_id': employeeId,
+      'timestamp': DateTime.now().toIso8601String(),
+      'direction': direction,
+      'is_visitor': false,
+      'bluetooth_code': bluetoothCode,
+    });
+  }
+
+  void _onAccessButtonPressed() async {
     final employee = await Supabase.instance.client
         .from('employees')
-        .select('id')
+        .select('id, name')
         .eq('bluetooth_code', widget.bluetoothCode)
         .maybeSingle();
-    if (employee != null) {
-      await logEmployeeAccess(
-        employeeId: employee['id'],
-        direction: 'entry',
-        bluetoothCode: widget.bluetoothCode,
+
+    if (employee == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Angajatul nu a fost găsit!')),
       );
+      return;
     }
-    _showWelcomeAndNavigate("Numele Utilizatorului");
+
+    final employeeId = employee['id'];
+    final inside = await isEmployeeInside(employeeId);
+
+    if (inside) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+      );
+      return;
+    } else {
+      await _sendBluetoothCode();
+      // Logarea accesului se face în _onDataReceived după ce primești ACCESS_GRANTED
+    }
   }
-}
+
+  void _onDataReceived(Uint8List data) async {
+    String response = String.fromCharCodes(data).trim();
+    setState(() {
+      _esp32Response = response;
+    });
+    
+    if (response.contains("ACCESS_GRANTED")) {
+      final employee = await Supabase.instance.client
+          .from('employees')
+          .select('id, name')
+          .eq('bluetooth_code', widget.bluetoothCode)
+          .maybeSingle();
+
+      if (employee != null) {
+        final employeeId = employee['id'];
+        final inside = await isEmployeeInside(employeeId);
+        
+        if (!inside) {
+          await logEmployeeAccess(
+            employeeId: employeeId,
+            direction: 'entry',
+            bluetoothCode: widget.bluetoothCode,
+          );
+          _showWelcomeAndNavigate(employee['name'] ?? "");
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+          );
+        }
+      }
+    } else if (response.contains("ACCESS_DENIED")) {
+      setState(() {
+        _statusMessage = "Acces cu mașina RESPINS!";
+      });
+    } else {
+      setState(() {
+        _statusMessage = "Răspuns ESP32: $response";
+      });
+    }
+  }
 
   Future<void> _sendBluetoothCode() async {
     if (_isConnected && _connection != null) {
@@ -129,65 +222,265 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
-  
-Future<void> _sendCodeToWeb() async {
-  setState(() {
-    _sending = true;
-    _webResponse = null;
-    _statusMessage = "Se trimite codul la server...";
-  });
+  Future<void> _sendCodeToWeb() async {
+    // Verifică statusul înainte să trimiți codul
+    final employee = await Supabase.instance.client
+        .from('employees')
+        .select('id, name')
+        .eq('bluetooth_code', widget.bluetoothCode)
+        .maybeSingle();
 
-  try {
-    final url = Uri.parse('http://192.168.1.134:8000/validate/');
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'ble_code': widget.bluetoothCode}),
-    );
+    if (employee != null) {
+      final employeeId = employee['id'];
+      final inside = await isEmployeeInside(employeeId);
+      
+      if (inside) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+        );
+        return;
+      }
+    }
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
+    setState(() {
+      _sending = true;
+      _webResponse = null;
+      _statusMessage = "Se trimite codul la server...";
+    });
+
+    try {
+      final url = Uri.parse('http://192.168.1.134:8000/validate/');
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'ble_code': widget.bluetoothCode}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _webResponse = data['status'] == 'granted'
+              ? "Acces pietonal PERMIS!"
+              : "Acces pietonal RESPINS!";
+          _statusMessage = _webResponse;
+        });
+
+        if (data['status'] == 'granted' && employee != null) {
+          final employeeId = employee['id'];
+          final inside = await isEmployeeInside(employeeId);
+          
+          if (!inside) {
+            await logEmployeeAccess(
+              employeeId: employeeId,
+              direction: 'entry',
+              bluetoothCode: widget.bluetoothCode,
+            );
+            _showWelcomeAndNavigate(data['user'] ?? "");
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+            );
+          }
+        }
+      } else {
+        setState(() {
+          _webResponse = "Eroare server: ${response.statusCode}";
+          _statusMessage = _webResponse;
+        });
+      }
+    } catch (e) {
       setState(() {
-        _webResponse = data['status'] == 'granted'
-            ? "Acces pietonal PERMIS!"
-            : "Acces pietonal RESPINS!";
+        _webResponse = "Eroare la trimitere: $e";
         _statusMessage = _webResponse;
       });
-
-      if (data['status'] == 'granted') {
-        // Caută angajatul după bluetooth_code
-        final employee = await Supabase.instance.client
-            .from('employees')
-            .select('id, name')
-            .eq('bluetooth_code', widget.bluetoothCode)
-            .maybeSingle();
-
-        if (employee != null) {
-          await logEmployeeAccess(
-            employeeId: employee['id'],
-            direction: 'entry',
-            bluetoothCode: widget.bluetoothCode,
-          );
-        }
-        _showWelcomeAndNavigate(data['user'] ?? "");
-      }
-    } else {
+    } finally {
       setState(() {
-        _webResponse = "Eroare server: ${response.statusCode}";
-        _statusMessage = _webResponse;
+        _sending = false;
       });
     }
-  } catch (e) {
-    setState(() {
-      _webResponse = "Eroare la trimitere: $e";
-      _statusMessage = _webResponse;
-    });
-  } finally {
-    setState(() {
-      _sending = false;
-    });
   }
-}
+
+  Future<void> logEmployeeExit({
+    required String employeeId,
+    String? bluetoothCode,
+  }) async {
+    try {
+      print('Încerc să logez ieșirea pentru employee ID: $employeeId');
+      
+      final result = await Supabase.instance.client.from('access_logs').insert({
+        'employee_id': employeeId,
+        'timestamp': DateTime.now().toIso8601String(),
+        'direction': 'exit',
+        'is_visitor': false,
+        'bluetooth_code': bluetoothCode,
+      });
+      
+      print('Rezultat insert exit: $result');
+      print('Exit logged successfully pentru employee: $employeeId');
+    } catch (e) {
+      print('Eroare la logging exit: $e');
+    }
+  }
+
+  void _onCarExitButtonPressed() async {
+    print('Car exit button pressed - începe procesul de ieșire cu mașina');
+    
+    try {
+      final employee = await Supabase.instance.client
+          .from('employees')
+          .select('id, name')
+          .eq('bluetooth_code', widget.bluetoothCode)
+          .maybeSingle();
+
+      if (employee == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Angajatul nu a fost găsit!')),
+        );
+        return;
+      }
+
+      final employeeId = employee['id'];
+      final inside = await isEmployeeInside(employeeId);
+
+      // TEMPORAR: Permite ieșirea chiar dacă nu este înăuntru (pentru testare)
+      // if (!inside) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(content: Text('Nu ești în firmă! Folosește butonul de acces pentru a intra.')),
+      //   );
+      //   return;
+      // }
+
+      // Trimite comanda de ieșire prin Bluetooth
+      setState(() {
+        _sending = true;
+        _statusMessage = "Se trimite comanda de ieșire cu mașina...";
+      });
+
+      if (_isConnected && _connection != null) {
+        String exitCommand = "EXIT_CAR_${widget.bluetoothCode}";
+        _connection!.output.add(Uint8List.fromList(exitCommand.codeUnits));
+        await _connection!.output.allSent;
+        
+        setState(() {
+          _statusMessage = "Comandă de ieșire trimisă! Aștept răspuns de la ESP32...";
+        });
+
+        // Simulează răspuns pozitiv după 2 secunde (înlocuiește cu logica reală)
+        await Future.delayed(Duration(seconds: 2));
+        
+        await logEmployeeExit(
+          employeeId: employeeId,
+          bluetoothCode: widget.bluetoothCode,
+        );
+
+        _showExitAnimation(employee['name']);
+      } else {
+        setState(() {
+          _statusMessage = "Nu ești conectat la ESP32!";
+          _sending = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = "Eroare la ieșire cu mașina: $e";
+        _sending = false;
+      });
+    }
+  }
+
+  void _onPedestrianExitButtonPressed() async {
+    print('Pedestrian exit button pressed - începe procesul de ieșire pietonală');
+    
+    try {
+      final employee = await Supabase.instance.client
+          .from('employees')
+          .select('id, name')
+          .eq('bluetooth_code', widget.bluetoothCode)
+          .maybeSingle();
+
+      if (employee == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Angajatul nu a fost găsit!')),
+        );
+        return;
+      }
+
+      final employeeId = employee['id'];
+      final inside = await isEmployeeInside(employeeId);
+
+      // TEMPORAR: Permite ieșirea chiar dacă nu este înăuntru (pentru testare)
+      // if (!inside) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(content: Text('Nu ești în firmă! Folosește butonul de acces pentru a intra.')),
+      //   );
+      //   return;
+      // }
+
+      setState(() {
+        _sending = true;
+        _statusMessage = "Se trimite comanda de ieșire pietonală...";
+      });
+
+      try {
+        final url = Uri.parse('http://192.168.1.134:8000/validate/');
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'ble_code': widget.bluetoothCode}),
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          setState(() {
+            _statusMessage = data['status'] == 'granted'
+                ? "Ieșire pietonală PERMISĂ!"
+                : "Ieșire pietonală RESPINSĂ!";
+          });
+
+          if (data['status'] == 'granted') {
+            await logEmployeeExit(
+              employeeId: employeeId,
+              bluetoothCode: widget.bluetoothCode,
+            );
+            _showExitAnimation(employee['name']);
+          }
+        } else {
+          setState(() {
+            _statusMessage = "Eroare server: ${response.statusCode}";
+          });
+        }
+      } catch (e) {
+        setState(() {
+          _statusMessage = "Eroare la trimitere: $e";
+        });
+      } finally {
+        setState(() {
+          _sending = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _statusMessage = "Eroare la ieșire pietonală: $e";
+        _sending = false;
+      });
+    }
+  }
+
+  void _showExitAnimation(String userName) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => WelcomeAnimation(userName: "La revedere, $userName!"),
+    );
+    await Future.delayed(const Duration(seconds: 2));
+    if (mounted) {
+      Navigator.of(context).pop();
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => HomeScreen()),
+        (route) => false,
+      );
+    }
+  }
 
   void _showWelcomeAndNavigate(String userName) async {
     showDialog(
@@ -276,7 +569,7 @@ Future<void> _sendCodeToWeb() async {
                         icon: const Icon(Icons.directions_car),
                         label: const Text('Acces cu mașina'),
                         onPressed: _isConnected && !_sending
-                            ? _sendBluetoothCode
+                            ? _onAccessButtonPressed
                             : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.indigo,
@@ -297,6 +590,56 @@ Future<void> _sendCodeToWeb() async {
                         onPressed: !_sending ? _sendCodeToWeb : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 14),
+                          textStyle: const TextStyle(fontSize: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Separator pentru butoanele de ieșire
+                    const Divider(thickness: 2),
+                    const SizedBox(height: 16),
+                    Text(
+                      'IEȘIRE DIN FIRMĂ',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red[700],
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.car_rental),
+                        label: const Text('Ieșire cu mașina'),
+                        onPressed: _isConnected && !_sending
+                            ? _onCarExitButtonPressed
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.orange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 14),
+                          textStyle: const TextStyle(fontSize: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.exit_to_app),
+                        label: const Text('Ieșire pietonală'),
+                        onPressed: !_sending ? _onPedestrianExitButtonPressed : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 20, vertical: 14),

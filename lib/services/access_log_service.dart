@@ -49,3 +49,29 @@ Future<bool> isUserInside({
   if (response == null) return false;
   return response['direction'] == 'entry';
 }
+Future<void> logEmployeeExit({
+  required String employeeId,
+  String? bluetoothCode,
+}) async {
+  await Supabase.instance.client.from('access_logs').insert({
+    'employee_id': employeeId,
+    'timestamp': DateTime.now().toIso8601String(),
+    'direction': 'exit',
+    'is_visitor': false,
+    'bluetooth_code': bluetoothCode,
+  });
+}
+
+Future<bool> isEmployeeInside(String employeeId) async {
+  final logs = await Supabase.instance.client
+      .from('access_logs')
+      .select('direction')
+      .eq('employee_id', employeeId)
+      .order('timestamp', ascending: false)
+      .limit(1);
+
+  if (logs is List && logs.isNotEmpty) {
+    return logs[0]['direction'] == 'entry';
+  }
+  return false;
+}
