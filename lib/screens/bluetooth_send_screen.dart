@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'dart:typed_data';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class BluetoothSendScreen extends StatefulWidget {
   final String bluetoothCode;
@@ -18,6 +20,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   bool _sending = false;
   String? _statusMessage;
   String? _esp32Response;
+  String? _webResponse;
 
   @override
   void initState() {
@@ -65,7 +68,6 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
           _isConnected = true;
           _statusMessage = "Conectat la ${_device!.name}";
         });
-        // Ascultă răspunsuri de la ESP32
         _connection!.input?.listen(_onDataReceived).onDone(() {
           setState(() {
             _isConnected = false;
@@ -81,14 +83,13 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   }
 
   void _onDataReceived(Uint8List data) {
-    // Convertim bytes la string
     String response = String.fromCharCodes(data).trim();
     setState(() {
       _esp32Response = response;
       if (response.contains("ACCESS_GRANTED")) {
-        _statusMessage = "Acces PERMIS!";
+        _statusMessage = "Acces cu mașina PERMIS!";
       } else if (response.contains("ACCESS_DENIED")) {
-        _statusMessage = "Acces RESPINS!";
+        _statusMessage = "Acces cu mașina RESPINS!";
       } else {
         _statusMessage = "Răspuns ESP32: $response";
       }
@@ -109,10 +110,51 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
         _sending = false;
         _statusMessage = "Bluetooth Code trimis! Aștept răspuns de la ESP32...";
       });
-      // Răspunsul va fi procesat automat de _onDataReceived
     } else {
       setState(() {
         _statusMessage = "Nu ești conectat la ESP32!";
+      });
+    }
+  }
+
+  Future<void> _sendCodeToWeb() async {
+    setState(() {
+      _sending = true;
+      _webResponse = null;
+      _statusMessage = "Se trimite codul la server...";
+    });
+
+    try {
+      // Înlocuiește cu adresa backend-ului tău!
+      final url = Uri.parse('http://192.168.1.134:8000/validate/');
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'ble_code': widget.bluetoothCode}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _webResponse = data['status'] == 'granted'
+              ? "Acces pietonal PERMIS!"
+              : "Acces pietonal RESPINS!";
+          _statusMessage = _webResponse;
+        });
+      } else {
+        setState(() {
+          _webResponse = "Eroare server: ${response.statusCode}";
+          _statusMessage = _webResponse;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _webResponse = "Eroare la trimitere: $e";
+        _statusMessage = _webResponse;
+      });
+    } finally {
+      setState(() {
+        _sending = false;
       });
     }
   }
@@ -122,7 +164,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trimite Bluetooth Code la ESP32'),
+        title: const Text('Trimite Bluetooth Code'),
         backgroundColor: theme.primaryColor,
         elevation: 0,
       ),
@@ -185,13 +227,31 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
-                        icon: const Icon(Icons.send),
-                        label: const Text('Trimite codul'),
+                        icon: const Icon(Icons.directions_car),
+                        label: const Text('Acces cu mașina'),
                         onPressed: _isConnected && !_sending
                             ? _sendBluetoothCode
                             : null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.indigo,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 14),
+                          textStyle: const TextStyle(fontSize: 16),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.directions_walk),
+                        label: const Text('Acces pietonal'),
+                        onPressed: !_sending ? _sendCodeToWeb : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 20, vertical: 14),
                           textStyle: const TextStyle(fontSize: 16),
