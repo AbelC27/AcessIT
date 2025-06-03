@@ -1,3 +1,4 @@
+// screens/visitor_register_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'dart:typed_data';
@@ -367,7 +368,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                               ? _onAccessButtonPressed
                               : null,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo,
+                            backgroundColor: const Color.fromARGB(255, 213, 220, 255),
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 20, vertical: 14),
                             textStyle: const TextStyle(fontSize: 16),
