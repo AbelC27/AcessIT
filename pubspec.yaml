@@ -8,7 +8,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
+  shared_preferences: ^2.2.2
   flutter_bluetooth_serial: ^0.4.0
   http: ^1.2.1
   app_links: ^3.0.2
