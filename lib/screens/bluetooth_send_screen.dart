@@ -1,12 +1,12 @@
-// screens/visitor_register_screen.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'dart:typed_data';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:encrypt/encrypt.dart' as encrypt;
 import '../widgets/welcome_animation.dart';
 import '../screens/home_screen.dart';
 
@@ -26,13 +26,45 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   String? _statusMessage;
   String? _esp32Response;
   String? _webResponse;
-  bool _isInside = false; // variabilă locală pentru starea de "în firmă"
+  bool _isInside = false;
+
+  // AES Configuration - compatibil cu Node.js
+  static final String AES_KEY = dotenv.env['AES_KEY'] ?? 'your_base64_encoded_key_here';
+  late final encrypt.Key _key;
+  late final encrypt.Encrypter _encrypter;
 
   @override
   void initState() {
     super.initState();
+    _initializeEncryption();
     _askPermissions();
     _loadIsInside();
+  }
+
+  void _initializeEncryption() {
+    _key = encrypt.Key.fromBase64(AES_KEY);
+    _encrypter = encrypt.Encrypter(
+      encrypt.AES(_key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'),
+    );
+  }
+
+  String _encryptData(String data) {
+    final iv = encrypt.IV.fromSecureRandom(16);
+    final encrypted = _encrypter.encrypt(data, iv: iv);
+    return '${iv.base64}:${encrypted.base64}';
+  }
+
+  String _decryptData(String encryptedData) {
+    try {
+      final parts = encryptedData.split(':');
+      if (parts.length != 2) return '';
+      final iv = encrypt.IV.fromBase64(parts[0]);
+      final encrypted = encrypt.Encrypted.fromBase64(parts[1]);
+      return _encrypter.decrypt(encrypted, iv: iv);
+    } catch (e) {
+      print('Decryption error: $e');
+      return '';
+    }
   }
 
   Future<void> _askPermissions() async {
@@ -101,21 +133,6 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
-  // Pentru "Acces cu mașina" trimitem direct la web
-  void _onAccessButtonPressed() async {
-    if (_isInside) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
-      );
-      return;
-    }
-    await _sendCodeToWeb(isCar: true);
-  }
-
-  // Pentru "Acces pietonal" folosești direct _sendCodeToWeb(isCar: false)
-  // (vezi butonul din build)
-
-  // Poți păstra funcția pentru debugging, dar nu mai folosești răspunsul ESP32 pentru acces
   void _onDataReceived(Uint8List data) async {
     String response = String.fromCharCodes(data).trim();
     setState(() {
@@ -145,6 +162,16 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
+  void _onAccessButtonPressed() async {
+    if (_isInside) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+      );
+      return;
+    }
+    await _sendCodeToWeb(isCar: true);
+  }
+
   Future<void> _sendCodeToWeb({bool isCar = false}) async {
     if (_isInside) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -160,18 +187,28 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     });
 
     try {
-      final url = Uri.parse('http://192.168.127.234:3000/verify-access-from-mobile/');
+      final dataToEncrypt = {
+        'ble_code': widget.bluetoothCode,
+        'type': isCar ? 'car' : 'pedestrian',
+        'direction': 'entry'
+      };
+
+      final encryptedData = _encryptData(jsonEncode(dataToEncrypt));
+
+      final url = Uri.parse('http://192.168.127.252:3000/verify-access-from-mobile');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'ble_code': widget.bluetoothCode,
-          'type': isCar ? 'car' : 'pedestrian',
+          'encrypted_data': encryptedData,
         }),
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final responseData = jsonDecode(response.body);
+        final decryptedResponse = _decryptData(responseData['encrypted_response']);
+        final data = jsonDecode(decryptedResponse);
+
         setState(() {
           _webResponse = data['granted'] == true
               ? (isCar ? "Acces cu mașina PERMIS!" : "Acces pietonal PERMIS!")
@@ -204,7 +241,6 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     }
   }
 
-  // NOU: Trimitere ieșire la web
   Future<void> _sendExitToWeb() async {
     setState(() {
       _sending = true;
@@ -212,18 +248,27 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     });
 
     try {
-      final url = Uri.parse('http://192.168.127.234:3000/verify-access-from-mobile/');
+      final dataToEncrypt = {
+        'ble_code': widget.bluetoothCode,
+        'direction': 'exit',
+      };
+
+      final encryptedData = _encryptData(jsonEncode(dataToEncrypt));
+
+      final url = Uri.parse('http://192.168.127.252:3000/verify-access-from-mobile');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'ble_code': widget.bluetoothCode,
-          'direction': 'exit',
+          'encrypted_data': encryptedData,
         }),
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final responseData = jsonDecode(response.body);
+        final decryptedResponse = _decryptData(responseData['encrypted_response']);
+        final data = jsonDecode(decryptedResponse);
+
         if (data['can_exit'] == true) {
           setState(() {
             _isInside = false;
@@ -237,7 +282,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
           );
           await Future.delayed(const Duration(seconds: 2));
           if (mounted) {
-            Navigator.of(context).pop(); // închide dialogul
+            Navigator.of(context).pop();
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => HomeScreen()),
               (route) => false,
@@ -285,7 +330,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     );
     await Future.delayed(const Duration(seconds: 2));
     if (mounted) {
-      Navigator.of(context).pop(); // închide dialogul
+      Navigator.of(context).pop();
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => HomeScreen()),
         (route) => false,
