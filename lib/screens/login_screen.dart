@@ -35,11 +35,11 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed. Please check credentials.')),
+          SnackBar(content: Text('Eroare la logare}')),
         );
       }
     } catch (e) {
-      print('Login error: $e');
+      print('Eroare la logare: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: ${e.toString()}')),
       );
@@ -57,16 +57,16 @@ Future<void> _sendResetPasswordEmail() async {
         redirectTo: 'parkaccess://reset-password?email=$email',
       );
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Password reset email sent.')),
+        SnackBar(content: Text('Email de resetare trimis! Verifică-ți inbox-ul.')),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sending reset email: $e')),
+        SnackBar(content: Text('Eroare la trimiterea de resetare: $e')),
       );
     }
   } else {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Please enter your email first.')),
+      SnackBar(content: Text('Te rog introdu un email valid.')),  
     );
   }
 }
@@ -89,7 +89,7 @@ Future<void> _sendResetPasswordEmail() async {
             ),
             TextField(
               controller: _passwordController,
-              decoration: InputDecoration(labelText: 'Password'),
+              decoration: InputDecoration(labelText: 'Parola'),
               obscureText: true,
             ),
             SizedBox(height: 20),
@@ -104,11 +104,11 @@ Future<void> _sendResetPasswordEmail() async {
               onPressed: () {
                 Navigator.pushNamed(context, '/visitor-register');
               },
-              child: Text("I'm a Visitor"),
+              child: Text("Înregistrare Vizitator"),
             ),
             TextButton(
               onPressed: _sendResetPasswordEmail,
-              child: Text('Forgot Password?'),
+              child: Text('Ai uitat parola?'),
             ),
           ],
         ),
