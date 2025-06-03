@@ -1,67 +1,82 @@
+//presence report screen
+// Root: lib/screens/presence_report_screen.dart
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/access_log_model.dart';
-import 'package:intl/intl.dart';
+import '../services/local_storage_service.dart';
 
-class PresenceReportScreen extends StatelessWidget {
-  final List<AccessLog> logs;
+class PresenceReportScreen extends StatefulWidget {
+  const PresenceReportScreen({super.key});
 
-  const PresenceReportScreen({super.key, required this.logs});
+  @override
+  State<PresenceReportScreen> createState() => _PresenceReportScreenState();
+}
 
-  String _formatDateTime(DateTime dt) {
-    // Exemplu: 2025-05-11 17:35
-    return DateFormat('yyyy-MM-dd HH:mm').format(dt);
+class _PresenceReportScreenState extends State<PresenceReportScreen> {
+  List<AccessLog> _logs = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLogs();
+  }
+
+  Future<void> _fetchLogs() async {
+    try {
+      final sessionUser = Supabase.instance.client.auth.currentUser;
+      if (sessionUser == null) return;
+
+      final employee = await Supabase.instance.client
+          .from('employees')
+          .select('id')
+          .eq('id', sessionUser.id)
+          .maybeSingle();
+
+      final uuid = employee?['id'];
+      if (uuid == null) return;
+
+      final response = await Supabase.instance.client
+          .from('access_logs')
+          .select()
+          .eq('employee_id', uuid)
+          .order('timestamp', ascending: false);
+
+      setState(() {
+        _logs = (response as List).map((e) => AccessLog.fromMap(e)).toList();
+        _loading = false;
+      });
+    } catch (e) {
+      print('Error fetching access logs: $e');
+      setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Raport prezență'),
-        backgroundColor: const Color.fromARGB(255, 176, 140, 235),
-      ),
-      body: logs.isEmpty
-          ? Center(
-              child: Text(
-                'Nu există înregistrări de acces.',
-                style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-              ),
-            )
-          : ListView.separated(
-              itemCount: logs.length,
-              separatorBuilder: (_, __) => Divider(height: 1),
-              itemBuilder: (context, index) {
-                final log = logs[index];
-                final isEntry = log.direction == 'entry';
-                final icon = isEntry ? Icons.login : Icons.logout;
-                final color = isEntry ? Colors.green : Colors.red;
-                final type = log.isVisitor ? 'Vizitator' : 'Angajat';
-                final validator = log.validatorName ?? 'Automat/ESP32';
-
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: color.withOpacity(0.15),
-                    child: Icon(icon, color: color),
-                  ),
-                  title: Text(
-                    isEntry ? 'Intrare' : 'Ieșire',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Data și ora: ${_formatDateTime(log.timestamp)}'),
-                      Text('Tip: $type'),
-                      if (log.validatorName != null)
-                        Text('Validat de: $validator'),
-                    ],
-                  ),
-                  trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
-                );
-              },
-            ),
+      appBar: AppBar(title: const Text('Istoric Acces')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _logs.isEmpty
+              ? const Center(child: Text('Nu există intrări înregistrate.'))
+              : ListView.builder(
+                  itemCount: _logs.length,
+                  itemBuilder: (context, index) {
+                    final log = _logs[index];
+                    return ListTile(
+                      leading: Icon(
+                        log.direction == 'entry' ? Icons.login : Icons.logout,
+                        color: log.direction == 'entry'
+                            ? Colors.green
+                            : Colors.red,
+                      ),
+                      title:
+                          Text(log.direction == 'entry' ? 'Intrare' : 'Ieșire'),
+                      subtitle: Text(log.timestamp.toString()),
+                    );
+                  },
+                ),
     );
   }
 }
