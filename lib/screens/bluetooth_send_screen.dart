@@ -62,7 +62,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
       final encrypted = encrypt.Encrypted.fromBase64(parts[1]);
       return _encrypter.decrypt(encrypted, iv: iv);
     } catch (e) {
-      print('Decryption error: $e');
+      print('Eroare la decriptare: $e');
       return '';
     }
   }
@@ -195,7 +195,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
 
       final encryptedData = _encryptData(jsonEncode(dataToEncrypt));
 
-      final url = Uri.parse('http://192.168.127.252:3000/verify-access-from-mobile');
+      final url = Uri.parse('http://192.168.127.234:3000/verify-access-from-mobile');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -255,7 +255,7 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
 
       final encryptedData = _encryptData(jsonEncode(dataToEncrypt));
 
-      final url = Uri.parse('http://192.168.127.252:3000/verify-access-from-mobile');
+      final url = Uri.parse('http://192.168.127.234:3000/verify-access-from-mobile');
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},

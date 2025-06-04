@@ -62,6 +62,8 @@ Future<void> logEmployeeExit({
   });
 }
 
+
+
 Future<bool> isEmployeeInside(String employeeId) async {
   final logs = await Supabase.instance.client
       .from('access_logs')
