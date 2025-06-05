@@ -4,11 +4,13 @@ import 'bluetooth_send_screen.dart';
 class BluetoothAccessScreen extends StatelessWidget {
   final String bluetoothCode;
   final String userName;
+  final String currentUserId; // <-- adaugă aici
 
   const BluetoothAccessScreen({
     super.key,
     required this.bluetoothCode,
     required this.userName,
+    required this.currentUserId, // <-- adaugă aici
   });
 
   @override
@@ -65,6 +67,7 @@ class BluetoothAccessScreen extends StatelessWidget {
                       MaterialPageRoute(
                         builder: (_) => BluetoothSendScreen(
                           bluetoothCode: bluetoothCode,
+                          currentUserId: currentUserId,
                         ),
                       ),
                     );

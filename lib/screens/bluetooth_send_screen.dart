@@ -1,3 +1,4 @@
+import 'package:access_control_app/widgets/pending_animation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -7,12 +8,17 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
-import '../widgets/welcome_animation.dart';
+import '../widgets/access_animation.dart';
 import '../screens/home_screen.dart';
 
 class BluetoothSendScreen extends StatefulWidget {
   final String bluetoothCode;
-  const BluetoothSendScreen({super.key, required this.bluetoothCode});
+  final String currentUserId; // <-- Adaugă userId aici!
+  const BluetoothSendScreen({
+    super.key,
+    required this.bluetoothCode,
+    required this.currentUserId,
+  });
 
   @override
   State<BluetoothSendScreen> createState() => _BluetoothSendScreenState();
@@ -28,17 +34,20 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   String? _webResponse;
   bool _isInside = false;
 
-  // AES Configuration - compatibil cu Node.js
-  static final String AES_KEY = dotenv.env['AES_KEY'] ?? 'your_base64_encoded_key_here';
+  static final String AES_KEY =
+      dotenv.env['AES_KEY'] ?? 'your_base64_encoded_key_here';
   late final encrypt.Key _key;
   late final encrypt.Encrypter _encrypter;
+
+  String allowedSchedule = "08:00-18:00";
 
   @override
   void initState() {
     super.initState();
     _initializeEncryption();
     _askPermissions();
-    _loadIsInside();
+    _loadIsInside(widget.currentUserId);
+    _loadAllowedSchedule();
   }
 
   void _initializeEncryption() {
@@ -76,16 +85,59 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     ].request();
   }
 
-  Future<void> _saveIsInside(bool value) async {
+  // Salvează isInside per user
+  Future<void> _saveIsInside(bool value, String userId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('isInside', value);
+    await prefs.setString('isInside_userId', userId);
   }
 
-  Future<void> _loadIsInside() async {
+  // Încarcă isInside per user
+  Future<void> _loadIsInside(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedUserId = prefs.getString('isInside_userId');
+    if (savedUserId == userId) {
+      setState(() {
+        _isInside = prefs.getBool('isInside') ?? false;
+      });
+    } else {
+      setState(() {
+        _isInside = false;
+      });
+    }
+  }
+
+  Future<void> _loadAllowedSchedule() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _isInside = prefs.getBool('isInside') ?? false;
+      allowedSchedule =
+          prefs.getString('allowed_schedule') ?? "08:00-18:00";
     });
+  }
+
+  bool isNowInAllowedSchedule(String allowedSchedule) {
+    try {
+      final parts = allowedSchedule.split('-');
+      if (parts.length != 2) return true;
+      final now = TimeOfDay.now();
+      final startParts = parts[0].split(':');
+      final endParts = parts[1].split(':');
+      final start = TimeOfDay(
+        hour: int.parse(startParts[0]),
+        minute: int.parse(startParts[1]),
+      );
+      final end = TimeOfDay(
+        hour: int.parse(endParts[0]),
+        minute: int.parse(endParts[1]),
+      );
+      bool afterStart = now.hour > start.hour ||
+          (now.hour == start.hour && now.minute >= start.minute);
+      bool beforeEnd = now.hour < end.hour ||
+          (now.hour == end.hour && now.minute <= end.minute);
+      return afterStart && beforeEnd;
+    } catch (e) {
+      return true;
+    }
   }
 
   Future<void> _connect() async {
@@ -165,7 +217,9 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   void _onAccessButtonPressed() async {
     if (_isInside) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+        SnackBar(
+            content: Text(
+                'Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
       );
       return;
     }
@@ -175,9 +229,20 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
   Future<void> _sendCodeToWeb({bool isCar = false}) async {
     if (_isInside) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.')),
+        SnackBar(
+          content: Text(
+            'Ești deja înăuntru! Folosește butonul "Ieși din firmă" pentru a ieși.',
+          ),
+        ),
       );
       return;
+    }
+
+    if (!isNowInAllowedSchedule(allowedSchedule)) {
+      setState(() {
+        _statusMessage =
+            "Ești în afara programului, așteptăm confirmare de la server...";
+      });
     }
 
     setState(() {
@@ -185,6 +250,12 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
       _webResponse = null;
       _statusMessage = "Se trimite codul la server...";
     });
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PendingAnimation(),
+    );
 
     try {
       final dataToEncrypt = {
@@ -195,41 +266,76 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
 
       final encryptedData = _encryptData(jsonEncode(dataToEncrypt));
 
-      final url = Uri.parse('http://192.168.127.234:3000/verify-access-from-mobile');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'encrypted_data': encryptedData,
-        }),
-      );
+      final url =
+          Uri.parse('http://192.168.127.156:3000/verify-access-from-mobile');
+      http.Response response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'encrypted_data': encryptedData,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        final decryptedResponse = _decryptData(responseData['encrypted_response']);
-        final data = jsonDecode(decryptedResponse);
+      Map<String, dynamic> data;
+      String? logId;
 
+      // Prima verificare
+      final responseData = jsonDecode(response.body);
+      final decryptedResponse =
+          _decryptData(responseData['encrypted_response']);
+      data = jsonDecode(decryptedResponse);
+      print('Răspuns server: $data');
+
+      logId = data['log_id']?.toString();
+
+      // Polling dacă statusul e pending
+      while (data['message'] == 'pending') {
+        await Future.delayed(const Duration(seconds: 2));
+        final statusUrl = Uri.parse(
+            'http://192.168.127.156:3000/check-access-status?log_id=$logId');
+        final statusResponse = await http
+            .get(statusUrl)
+            .timeout(const Duration(seconds: 10));
+        final statusData = jsonDecode(statusResponse.body);
+        print('Polling status: $statusData');
+        data = statusData;
+      }
+
+      if (mounted) Navigator.of(context).pop();
+
+      // --- REDIRECȚIONARE LA HOME INDIFERENT DE RĂSPUNS ---
+      if (data['granted'] == true) {
         setState(() {
-          _webResponse = data['granted'] == true
-              ? (isCar ? "Acces cu mașina PERMIS!" : "Acces pietonal PERMIS!")
-              : (isCar ? "Acces cu mașina RESPINS!" : "Acces pietonal RESPINS!");
-          _statusMessage = _webResponse;
+          _isInside = true;
         });
-
-        if (data['granted'] == true) {
-          setState(() {
-            _isInside = true;
-          });
-          await _saveIsInside(true);
-          _showWelcomeAndNavigate(data['user'] ?? "");
-        }
+        await _saveIsInside(true, widget.currentUserId);
       } else {
         setState(() {
-          _webResponse = "Eroare server: ${response.statusCode}";
-          _statusMessage = _webResponse;
+          _isInside = false;
         });
+        await _saveIsInside(false, widget.currentUserId);
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AccessAnimation(
+          success: data['granted'] == true,
+          message: data['message'] ?? (data['granted'] == true ? "Acces permis!" : "Acces respins!"),
+        ),
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        Navigator.of(context).pop();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => HomeScreen()),
+          (route) => false,
+        );
       }
     } catch (e) {
+      if (mounted) Navigator.of(context).pop();
       setState(() {
         _webResponse = "Eroare la trimitere: $e";
         _statusMessage = _webResponse;
@@ -247,6 +353,12 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
       _statusMessage = "Se trimite cererea de ieșire la server...";
     });
 
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const PendingAnimation(),
+    );
+
     try {
       final dataToEncrypt = {
         'ble_code': widget.bluetoothCode,
@@ -255,53 +367,70 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
 
       final encryptedData = _encryptData(jsonEncode(dataToEncrypt));
 
-      final url = Uri.parse('http://192.168.127.234:3000/verify-access-from-mobile');
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'encrypted_data': encryptedData,
-        }),
-      );
+      final url =
+          Uri.parse('http://192.168.127.156:3000/verify-access-from-mobile');
+      http.Response response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'encrypted_data': encryptedData,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        final decryptedResponse = _decryptData(responseData['encrypted_response']);
-        final data = jsonDecode(decryptedResponse);
+      Map<String, dynamic> data;
+      String? logId;
 
-        if (data['can_exit'] == true) {
-          setState(() {
-            _isInside = false;
-          });
-          await _saveIsInside(false);
+      // Prima verificare
+      final responseData = jsonDecode(response.body);
+      final decryptedResponse =
+          _decryptData(responseData['encrypted_response']);
+      data = jsonDecode(decryptedResponse);
+      print('Răspuns server (ieșire): $data');
 
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => WelcomeAnimation(userName: data['message'] ?? "La revedere!"),
-          );
-          await Future.delayed(const Duration(seconds: 2));
-          if (mounted) {
-            Navigator.of(context).pop();
-            Navigator.of(context).pushAndRemoveUntil(
-              MaterialPageRoute(builder: (_) => HomeScreen()),
-              (route) => false,
-            );
-          }
-        } else {
-          setState(() {
-            _statusMessage = data['message'] ?? "Nu poți ieși!";
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(data['message'] ?? "Nu poți ieși!")),
-          );
-        }
-      } else {
+      logId = data['log_id']?.toString();
+
+      // Polling dacă statusul e pending
+      while (data['message'] == 'pending') {
+        await Future.delayed(const Duration(seconds: 2));
+        final statusUrl = Uri.parse(
+            'http://192.168.127.156:3000/check-access-status?log_id=$logId');
+        final statusResponse = await http
+            .get(statusUrl)
+            .timeout(const Duration(seconds: 10));
+        final statusData = jsonDecode(statusResponse.body);
+        print('Polling status (ieșire): $statusData');
+        data = statusData;
+      }
+
+      if (mounted) Navigator.of(context).pop();
+
+      if (data['granted'] == true) {
         setState(() {
-          _statusMessage = "Eroare server: ${response.statusCode}";
+          _isInside = false;
         });
+        await _saveIsInside(false, widget.currentUserId);
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AccessAnimation(
+          success: data['granted'] == true,
+          message: data['message'] ?? (data['granted'] == true ? "La revedere!" : "Nu poți ieși!"),
+        ),
+      );
+      await Future.delayed(const Duration(seconds: 2));
+      if (mounted) {
+        Navigator.of(context).pop();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => HomeScreen()),
+          (route) => false,
+        );
       }
     } catch (e) {
+      if (mounted) Navigator.of(context).pop();
       setState(() {
         _statusMessage = "Eroare la trimitere: $e";
       });
@@ -322,22 +451,6 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
     await _sendExitToWeb();
   }
 
-  void _showWelcomeAndNavigate(String userName) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => WelcomeAnimation(userName: userName),
-    );
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      Navigator.of(context).pop();
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => HomeScreen()),
-        (route) => false,
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -352,14 +465,18 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
           child: Card(
             elevation: 8,
             margin: const EdgeInsets.all(24),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20)),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    _isConnected ? Icons.bluetooth_connected : Icons.bluetooth,
+                    _isConnected
+                        ? Icons.bluetooth_connected
+                        : Icons.bluetooth,
                     color: _isConnected ? Colors.blue : Colors.grey,
                     size: 48,
                   ),
@@ -413,7 +530,8 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                               ? _onAccessButtonPressed
                               : null,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color.fromARGB(255, 213, 220, 255),
+                            backgroundColor:
+                                const Color.fromARGB(255, 213, 220, 255),
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 20, vertical: 14),
                             textStyle: const TextStyle(fontSize: 16),
@@ -428,7 +546,9 @@ class _BluetoothSendScreenState extends State<BluetoothSendScreen> {
                         child: ElevatedButton.icon(
                           icon: const Icon(Icons.directions_walk),
                           label: const Text('Acces pietonal'),
-                          onPressed: !_sending ? () => _sendCodeToWeb(isCar: false) : null,
+                          onPressed: !_sending
+                              ? () => _sendCodeToWeb(isCar: false)
+                              : null,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.green,
                             foregroundColor: Colors.white,

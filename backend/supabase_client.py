@@ -62,3 +62,20 @@ async def validate_access(ble_code: str):
         resp.raise_for_status()
 
     return {"status": "granted", "user": user["name"]}
+
+async def get_log_by_id(log_id: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f"{SUPABASE_URL}/rest/v1/access_logs?id=eq.{log_id}&select=*",
+            headers=headers
+        )
+        logs = res.json()
+        return logs[0] if logs else None
+
+async def update_log_status(log_id: str, status: str, message: str):
+    async with httpx.AsyncClient() as client:
+        return await client.patch(
+            f"{SUPABASE_URL}/rest/v1/access_logs?id=eq.{log_id}",
+            headers=headers,
+            json={"status": status, "message": message}
+        )

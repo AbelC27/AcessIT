@@ -42,3 +42,4 @@ flutter:
     - .env
     - assets/lottie/success.json
     - assets/lottie/denied.json
+    - assets/lottie/pending.json

@@ -1,4 +1,3 @@
-//home screen
 // lib/screens/home_screen.dart
 import 'package:access_control_app/screens/bluetooth_access_screen.dart';
 import 'package:flutter/material.dart';
@@ -40,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => BluetoothSendScreen(
           bluetoothCode: code,
+          currentUserId: currentUser!.id,
         ),
       ),
     );
@@ -112,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => BluetoothAccessScreen(
           bluetoothCode: code,
           userName: currentUser!.name,
+          currentUserId: currentUser!.id,
         ),
       ),
     );
